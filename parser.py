@@ -612,7 +612,6 @@
 #     print("PARSING COMPLETE!")
 #     print("=" * 100)
 
-
 """
 Enhanced Credit Card Statement Parser - PRODUCTION READY
 Extracts key information from credit card statements across multiple banks
@@ -777,7 +776,6 @@ class BobParser(CreditCardParser):
         total_amount_due = self.extract_field(text, [r'Total Amount Due\s+([\d,]+\.\d{2})\s+DR'], self.clean_amount)
         minimum_amount_due = self.extract_field(text, [r'Minimum Amount Due\s+([\d,]+\.\d{2})'], self.clean_amount)
         available_credit = self.extract_field(text, [r'Available Credit Limit\s+([\d,]+\.\d{2})'], self.clean_amount)
-        # For BOB, previous balance is listed as "Opening Balance"
         previous_balance = self.extract_field(text, [r'Opening Balance\s+([\d,]+\.\d{2})'], self.clean_amount)
 
         for key, value in locals().items():
@@ -880,23 +878,27 @@ class SBIParser(CreditCardParser):
 
     def _extract_transactions(self, text: str) -> List[Transaction]:
         transactions = []
+        transaction_text = ""
         transaction_block_match = re.search(r'Transaction Details for Statement Period.*?Important Messages', text, re.DOTALL)
         if transaction_block_match:
             transaction_text = transaction_block_match.group(0)
-            pattern = r'(\d{2}\s\w{3}\s\d{2})\s+(?!PAYMENT RECEIVED)(.+?)\s+([\d,]+\.\d{2})\s+([CDMN])'
-            matches = re.findall(pattern, transaction_text)
-            for match in matches:
-                amount = self.clean_amount(match[2])
-                if amount:
-                    description = re.sub(r'\s{2,}', ' ', match[1]).strip()
-                    trans_type = 'credit' if match[3] == 'C' else 'debit'
-                    transactions.append(Transaction(
-                        date=match[0].strip(), description=description, amount=amount,
-                        type=trans_type, category=self.categorize_transaction(description)
-                    ))
         
+        # This pattern is more robust for SBI's multi-line descriptions and various transaction types
+        pattern = r'(\d{2}\s\w{3}\s\d{2})\s+(?!PAYMENT RECEIVED)(.+?)\s+([\d,]+\.\d{2})\s+([CDMN])'
+        matches = re.findall(pattern, transaction_text)
+        for match in matches:
+            amount = self.clean_amount(match[2])
+            if amount:
+                description = re.sub(r'\s{2,}', ' ', match[1]).strip()
+                trans_type = 'credit' if match[3] == 'C' else 'debit'
+                transactions.append(Transaction(
+                    date=match[0].strip(), description=description, amount=amount,
+                    type=trans_type, category=self.categorize_transaction(description)
+                ))
+        
+        # Capture payments separately as they have a different structure
         payment_pattern = r'(\d{2}\s\w{3}\s\d{2})\s+(PAYMENT RECEIVED.*?)\s+([\d,]+\.\d{2})\s+C'
-        payment_matches = re.findall(payment_pattern, transaction_text or text)
+        payment_matches = re.findall(transaction_text or text)
         for match in payment_matches:
             amount = self.clean_amount(match[2])
             if amount:
