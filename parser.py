@@ -663,7 +663,7 @@ class CreditCardParser:
         'Shopping': ['AMAZON', 'FLIPKART', 'MYNTRA', 'SHOPPERS STOP', 'BIGBAZAAR', 'JIOMART', 'RELIANCE'],
         'Travel': ['UBER', 'OLA', 'IRCTC', 'MAKEMYTRIP', 'GOIBIBO', 'RED BUS'],
         'Entertainment': ['NETFLIX', 'SPOTIFY', 'BOOKMYSHOW', 'PVR'],
-        'Utilities': ['VODAFONE', 'AIRTEL', 'BSNL', 'ADANI_ELECTRICITY', 'RELIANCE JIO'],
+        'Utilities': ['VODAFONE', 'AIRTEL', 'BSNL', 'ADANI_ELECTRICITY', 'ADANI ELECTRICITY', 'RELIANCE JIO'],
         'Health & Wellness': ['APOLLO', 'PHARMEASY', '1MG', 'LALPATHLAB'],
         'EMI': ['INTEREST ON EMI', 'EMIINT', 'EN EMI'],
         'Finance': ['RAPIPAY', 'INSTANTMUDRA'],
@@ -687,7 +687,7 @@ class CreditCardParser:
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text() + "\n"
-                # Normalize line breaks and remove excessive whitespace
+                # Normalize line breaks and remove excessive whitespace for consistent parsing
                 return ' '.join(text.replace('\n', ' ').split())
         except ImportError:
             print("⚠ PyPDF2 not found...")
@@ -726,13 +726,13 @@ class AxisBankParser(CreditCardParser):
         text = self.extract_text_from_pdf(pdf_path)
         quality = {}
 
-        card_number = self.extract_field(text, [r'Credit Card Number: (\S+?)\s'])
+        card_number = self.extract_field(text, [r'Credit Card Number:\s*(\S+?)\s'])
         statement_date = self.extract_field(text, [r'Selected Statement Month\s+([\w\s]+\d{4})'])
         payment_due_date = self.extract_field(text, [r'Payment Due Date\s+([\d\s\w\']+)'])
-        credit_limit = self.extract_field(text, [r'Credit Limit\s+₹ ([\d,]+\.\d{2})'], self.clean_amount)
-        total_amount_due = self.extract_field(text, [r'Total Payment Due\s+₹ ([\d,]+\.\d{2})'], self.clean_amount)
-        minimum_amount_due = self.extract_field(text, [r'Minimum Payment Due\s+₹ ([\d,]+\.\d{2})'], self.clean_amount)
-        previous_balance = self.extract_field(text, [r'Opening Balance\s+₹ ([\d,]+\.\d{2})'], self.clean_amount)
+        credit_limit = self.extract_field(text, [r'Credit Limit\s+₹\s*([\d,]+\.\d{2})'], self.clean_amount)
+        total_amount_due = self.extract_field(text, [r'Total Payment Due\s+₹\s*([\d,]+\.\d{2})'], self.clean_amount)
+        minimum_amount_due = self.extract_field(text, [r'Minimum Payment Due\s+₹\s*([\d,]+\.\d{2})'], self.clean_amount)
+        previous_balance = self.extract_field(text, [r'Opening Balance\s+₹\s*([\d,]+\.\d{2})'], self.clean_amount)
         
         available_credit = None
         if credit_limit is not None and total_amount_due is not None:
@@ -777,6 +777,7 @@ class BobParser(CreditCardParser):
         total_amount_due = self.extract_field(text, [r'Total Amount Due\s+([\d,]+\.\d{2})\s+DR'], self.clean_amount)
         minimum_amount_due = self.extract_field(text, [r'Minimum Amount Due\s+([\d,]+\.\d{2})'], self.clean_amount)
         available_credit = self.extract_field(text, [r'Available Credit Limit\s+([\d,]+\.\d{2})'], self.clean_amount)
+        # For BOB, previous balance is listed as "Opening Balance"
         previous_balance = self.extract_field(text, [r'Opening Balance\s+([\d,]+\.\d{2})'], self.clean_amount)
 
         for key, value in locals().items():
@@ -793,14 +794,11 @@ class BobParser(CreditCardParser):
 
     def _extract_transactions(self, text: str) -> List[Transaction]:
         transactions = []
-        # Pattern captures the entire transaction line from the specific BOB format
         pattern = r'(\d{2}/\d{2}/\d{4})\s+\d+\s+(SARIKA LIMBACHIYA \(PRIMARY CARD-\d{4}\)\s+.*?IN)\s+\d+\s+INR\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+DR'
         matches = re.findall(pattern, text)
         for match in matches:
-            # For BOB, the transaction amount is the first amount field
             amount = self.clean_amount(match[2])
             if amount:
-                # Remove the cardholder name part for a cleaner description
                 description = match[1].split(') ')[-1].strip()
                 transactions.append(Transaction(
                     date=match[0].strip(), description=description, amount=amount,
@@ -837,11 +835,9 @@ class KotakParser(CreditCardParser):
 
     def _extract_transactions(self, text: str) -> List[Transaction]:
         transactions = []
-        # Find the block of text that contains transactions
         transaction_block_match = re.search(r'Transaction details from.*?Total Purchase & Other Charges', text, re.DOTALL)
         if transaction_block_match:
             transaction_text = transaction_block_match.group(0)
-            # This pattern correctly captures all transaction lines, including payments
             pattern = r'(\d{2}/\d{2}/\d{4})\s+(.+?)\s+([\d,]+\.\d{2})(\s+Cr)?'
             matches = re.findall(pattern, transaction_text)
             for match in matches:
@@ -864,10 +860,10 @@ class SBIParser(CreditCardParser):
         card_number = self.extract_field(text, [r'Credit Card Number\s+XXXX XXXX XXXX (\w{4})'])
         statement_date = self.extract_field(text, [r'Statement Date\s+(\d{2} \w{3} \d{4})'])
         payment_due_date = self.extract_field(text, [r'Payment Due Date\s+(\d{2} \w{3} \d{4})'])
-        credit_limit = self.extract_field(text, [r'Credit Limit \( \)\s+\(mcluding cash\)\s+([\d,]+\.\d{2})'], self.clean_amount)
-        total_amount_due = self.extract_field(text, [r'\*Total Amount Due \(₹\)\s+([\d,]+\.\d{2})'], self.clean_amount)
-        minimum_amount_due = self.extract_field(text, [r'\*\*Minimum Amount Due \( \)\s+([\d,]+\.\d{2})'], self.clean_amount)
-        available_credit = self.extract_field(text, [r'Available Credit Limit \( \)\s+([\d,]+\.\d{2})'], self.clean_amount)
+        credit_limit = self.extract_field(text, [r'Credit Limit\s+\(\s*\)\s*\(mcluding cash\)\s+([\d,]+\.\d{2})'], self.clean_amount)
+        total_amount_due = self.extract_field(text, [r'\*Total Amount Due\s+\(₹\)\s+([\d,]+\.\d{2})'], self.clean_amount)
+        minimum_amount_due = self.extract_field(text, [r'\*\*Minimum Amount Due\s+\(\s*\)\s+([\d,]+\.\d{2})'], self.clean_amount)
+        available_credit = self.extract_field(text, [r'Available Credit Limit\s+\(\s*\)\s+([\d,]+\.\d{2})'], self.clean_amount)
         previous_balance = self.extract_field(text, [r'Previous Balance\s+\(2\)\s+([\d,]+\.\d{2})'], self.clean_amount)
 
         for key, value in locals().items():
@@ -884,11 +880,9 @@ class SBIParser(CreditCardParser):
 
     def _extract_transactions(self, text: str) -> List[Transaction]:
         transactions = []
-        # Isolate the transaction details section more reliably
         transaction_block_match = re.search(r'Transaction Details for Statement Period.*?Important Messages', text, re.DOTALL)
         if transaction_block_match:
             transaction_text = transaction_block_match.group(0)
-            # This pattern is more robust for SBI's multi-line descriptions and various transaction types
             pattern = r'(\d{2}\s\w{3}\s\d{2})\s+(?!PAYMENT RECEIVED)(.+?)\s+([\d,]+\.\d{2})\s+([CDMN])'
             matches = re.findall(pattern, transaction_text)
             for match in matches:
@@ -900,7 +894,7 @@ class SBIParser(CreditCardParser):
                         date=match[0].strip(), description=description, amount=amount,
                         type=trans_type, category=self.categorize_transaction(description)
                     ))
-        # Capture payments separately as they have a different structure
+        
         payment_pattern = r'(\d{2}\s\w{3}\s\d{2})\s+(PAYMENT RECEIVED.*?)\s+([\d,]+\.\d{2})\s+C'
         payment_matches = re.findall(payment_pattern, transaction_text or text)
         for match in payment_matches:
